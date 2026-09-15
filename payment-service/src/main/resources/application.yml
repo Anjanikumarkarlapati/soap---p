@@ -1,0 +1,16 @@
+server:
+  port: ${PORT:8084}
+
+spring:
+  application:
+    name: payment-service
+  config:
+    import: classpath:academiax-common.yml
+
+academiax:
+  db:
+    schema: payment
+  payment:
+    currency: USD
+    # PROCESSING payments older than this are marked EXPIRED and the enrollment is failed.
+    processing-timeout: ${PAYMENT_PROCESSING_TIMEOUT:PT10M}

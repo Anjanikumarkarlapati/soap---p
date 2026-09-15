@@ -1,7 +1,7 @@
 "use client";
-// Client-side stand-in for the Gateway → Auth/Course/Enrollment/Payment services.
-// Business rules match the PRD so the UI exercises real states; swap these functions
-// for fetch() calls to the Spring Cloud Gateway when the backend is up.
+// Data layer for the UI. Two interchangeable implementations with the same shape:
+//  - API mode (NEXT_PUBLIC_API_URL set): talks to the Spring Cloud Gateway.
+//  - Demo mode (unset): runs the PRD business rules in the browser so the UI works without a backend.
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import {
   AuditEvent, Course, Enrollment, Payment, User,
@@ -15,6 +15,7 @@ export class ApiError extends Error {
 interface Db { users: User[]; courses: Course[]; enrollments: Enrollment[]; payments: Payment[]; audit: AuditEvent[]; sessionId: string | null }
 export interface Toast { id: number; tone: "success" | "error" | "info"; message: string }
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
 const KEY = "academiax-demo-v2";
 const seed = (): Db => ({ users: seedUsers, courses: seedCourses, enrollments: seedEnrollments, payments: seedPayments, audit: [], sessionId: null });
 const rid = (p: string) => `${p}-${Math.floor(10000 + Math.random() * 89999)}`;
@@ -22,10 +23,20 @@ const now = () => new Date().toISOString();
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export const DEMO_PASSWORD = "password123";
 
-function useStoreValue() {
+function useToasts() {
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const toast = useCallback((message: string, tone: Toast["tone"] = "info") => {
+    const id = Date.now() + Math.random();
+    setToasts((t) => [...t, { id, tone, message }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4500);
+  }, []);
+  return { toasts, toast };
+}
+
+function useDemoStoreValue() {
   const [db, setDb] = useState<Db>(seed);
   const [ready, setReady] = useState(false);
-  const [toasts, setToasts] = useState<Toast[]>([]);
+  const { toasts, toast } = useToasts();
   const ref = useRef(db);
 
   useEffect(() => {
@@ -47,12 +58,6 @@ function useStoreValue() {
     ...d,
     audit: [{ id: rid("AUD"), actorId: d.sessionId ?? "system", action, entityType, entityId, correlationId: crypto.randomUUID(), createdAt: now() }, ...d.audit].slice(0, 200),
   });
-
-  const toast = useCallback((message: string, tone: Toast["tone"] = "info") => {
-    const id = Date.now() + Math.random();
-    setToasts((t) => [...t, { id, tone, message }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4500);
-  }, []);
 
   const user = db.users.find((u) => u.id === db.sessionId) ?? null;
 
@@ -152,7 +157,171 @@ function useStoreValue() {
   return { ...db, ready, user, toasts, toast, login, logout, enroll, pay, cancelEnrollment, saveCourse, setUserStatus, resetDemo };
 }
 
-const Ctx = createContext<ReturnType<typeof useStoreValue> | null>(null);
+// ---------------------------------------------------------------------------------------------
+// API mode
+// ---------------------------------------------------------------------------------------------
+
+type ApiCourse = Course & { instructorName: string; seatsRemaining: number };
+type ApiEnrollment = { id: string; studentId: string; studentName: string; studentEmail: string; courseId: string; status: Enrollment["status"]; reservedAt: string; confirmedAt?: string | null };
+type Session = { token: string; user: User };
+type Data = Omit<Db, "sessionId">;
+
+const SESSION_KEY = "academiax-session-v1";
+const emptyData: Data = { users: [], courses: [], enrollments: [], payments: [], audit: [] };
+
+function useApiStoreValue() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [data, setData] = useState<Data>(emptyData);
+  const [ready, setReady] = useState(false);
+  const { toasts, toast } = useToasts();
+  const sessionRef = useRef<Session | null>(null);
+  const dataRef = useRef<Data>(emptyData);
+
+  const put = useCallback((next: Data | ((d: Data) => Data)) => {
+    dataRef.current = typeof next === "function" ? next(dataRef.current) : next;
+    setData(dataRef.current);
+  }, []);
+
+  const endSession = useCallback(() => {
+    sessionRef.current = null;
+    try { localStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
+    setSession(null);
+    put(emptyData);
+  }, [put]);
+
+  const call = useCallback(async <T,>(path: string, init: RequestInit & { idempotencyKey?: string } = {}): Promise<T> => {
+    const { idempotencyKey, ...rest } = init;
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const s = sessionRef.current;
+    if (s) headers.Authorization = `Bearer ${s.token}`;
+    if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
+    let res: Response;
+    try {
+      res = await fetch(API_URL + path, { ...rest, headers });
+    } catch {
+      throw new Error("The service is unreachable."); // not an ApiError: pages show their retry / verify state
+    }
+    if (res.status === 401 && s) endSession(); // expired or revoked token
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new ApiError(res.status, body?.message ?? "Something went wrong. Please try again.");
+    }
+    return res.json() as Promise<T>;
+  }, [endSession]);
+
+  const load = useCallback(async (u: User) => {
+    const get = <T,>(p: string) => call<T>(p);
+    const [courses, enrollments, payments, people, audit] = await Promise.all([
+      get<ApiCourse[]>("/api/courses"),
+      get<ApiEnrollment[]>(u.role === "STUDENT" ? "/api/enrollments/me" : "/api/enrollments"),
+      u.role === "INSTRUCTOR" ? Promise.resolve([] as Payment[]) : get<Payment[]>(u.role === "STUDENT" ? "/api/payments/me" : "/api/payments"),
+      u.role === "ADMIN" ? get<User[]>("/api/users") : u.role === "INSTRUCTOR" ? get<User[]>("/api/users/instructors") : Promise.resolve([] as User[]),
+      u.role === "ADMIN"
+        ? Promise.all(["users", "courses", "enrollments", "payments"].map((s) => get<AuditEvent[]>(`/api/${s}/audit?size=50`)))
+            .then((all) => all.flat().sort((a, b) => b.createdAt.localeCompare(a.createdAt)))
+        : Promise.resolve([] as AuditEvent[]),
+    ]);
+    // Pages resolve names through `users`; non-admins can't list accounts, so fill in from course/enrollment snapshots.
+    const users = new Map<string, User>([...people, u].map((x) => [x.id, x]));
+    const add = (x: User) => { if (!users.has(x.id)) users.set(x.id, x); };
+    courses.forEach((c) => add({ id: c.instructorId, name: c.instructorName, email: "", role: "INSTRUCTOR", status: "ACTIVE", createdAt: c.enrollmentDeadline }));
+    enrollments.forEach((e) => add({ id: e.studentId, name: e.studentName, email: e.studentEmail, role: "STUDENT", status: "ACTIVE", createdAt: e.reservedAt }));
+    put({
+      users: [...users.values()],
+      courses: courses.map((c) => ({ ...c, fee: Number(c.fee) })),
+      enrollments: enrollments.map((e) => ({ id: e.id, studentId: e.studentId, courseId: e.courseId, status: e.status, reservedAt: e.reservedAt, confirmedAt: e.confirmedAt ?? undefined, idempotencyKey: "" })),
+      payments: payments.map((p) => ({ ...p, amount: Number(p.amount), providerReference: p.providerReference ?? undefined, paidAt: p.paidAt ?? undefined })),
+      audit,
+    });
+  }, [call, put]);
+
+  const refresh = useCallback(() => (sessionRef.current ? load(sessionRef.current.user) : Promise.resolve()), [load]);
+
+  useEffect(() => {
+    Promise.resolve().then(async () => {
+      try {
+        const s: Session | null = JSON.parse(localStorage.getItem(SESSION_KEY) ?? "null");
+        if (s) {
+          sessionRef.current = s;
+          setSession(s);
+          await load(s.user);
+        }
+      } catch { /* bad or expired session: start signed out */ }
+      setReady(true);
+    });
+  }, [load]);
+
+  async function login(email: string, password: string): Promise<User> {
+    const r = await call<{ accessToken: string; user: User }>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+    const s = { token: r.accessToken, user: r.user };
+    sessionRef.current = s;
+    // ponytail: bearer token in localStorage is readable by injected scripts; move to an httpOnly cookie via a BFF route for production.
+    try { localStorage.setItem(SESSION_KEY, JSON.stringify(s)); } catch { /* ignore */ }
+    await load(s.user);
+    setSession(s);
+    return s.user;
+  }
+
+  async function enroll(courseId: string, idempotencyKey: string): Promise<Enrollment> {
+    const e = await call<ApiEnrollment>("/api/enrollments", { method: "POST", body: JSON.stringify({ courseId }), idempotencyKey });
+    await refresh();
+    return { id: e.id, studentId: e.studentId, courseId: e.courseId, status: e.status, reservedAt: e.reservedAt, idempotencyKey };
+  }
+
+  async function pay(enrollmentId: string, simulate: "success" | "fail"): Promise<Payment> {
+    const key = crypto.randomUUID();
+    const enrollment = dataRef.current.enrollments.find((e) => e.id === enrollmentId);
+    const fee = dataRef.current.courses.find((c) => c.id === enrollment?.courseId)?.fee ?? 0;
+    // Optimistic PROCESSING row so the page shows progress and blocks a second submit while the charge runs.
+    const temp: Payment = { id: `processing-${key.slice(0, 8)}`, enrollmentId, amount: fee, currency: "USD", status: "PROCESSING", createdAt: now() };
+    put((d) => ({ ...d, payments: [temp, ...d.payments] }));
+    try {
+      const p = await call<Payment>("/api/payments", {
+        method: "POST", idempotencyKey: key,
+        body: JSON.stringify({ enrollmentId, simulate: simulate === "success" ? "SUCCESS" : "DECLINE" }),
+      });
+      await refresh();
+      return { ...p, amount: Number(p.amount) };
+    } catch (err) {
+      put((d) => ({ ...d, payments: d.payments.filter((x) => x.id !== temp.id) }));
+      if (err instanceof ApiError) await refresh().catch(() => {});
+      throw err;
+    }
+  }
+
+  function cancelEnrollment(id: string) {
+    call(`/api/enrollments/${id}/cancel`, { method: "POST" })
+      .then(refresh)
+      .catch((err: Error) => toast(err.message, "error"));
+  }
+
+  async function saveCourse(input: Omit<Course, "id" | "enrolledCount"> & { id?: string }): Promise<Course> {
+    const existing = dataRef.current.courses.find((c) => c.id === input.id);
+    const body = {
+      code: input.code, title: input.title, description: input.description, department: input.department,
+      instructorId: input.instructorId, capacity: input.capacity, fee: input.fee, enrollmentDeadline: input.enrollmentDeadline,
+      schedule: input.schedule, mode: input.mode, semester: input.semester, status: input.status,
+      image: input.image ?? existing?.image ?? null,
+    };
+    const c = await call<ApiCourse>(input.id ? `/api/courses/${input.id}` : "/api/courses", { method: input.id ? "PUT" : "POST", body: JSON.stringify(body) });
+    await refresh();
+    return { ...c, fee: Number(c.fee) };
+  }
+
+  function setUserStatus(id: string, status: User["status"]) {
+    call(`/api/users/${id}/status`, { method: "PATCH", body: JSON.stringify({ status }) })
+      .then(refresh)
+      .catch((err: Error) => toast(err.message, "error"));
+  }
+
+  function resetDemo() { toast("Demo reset isn't available when connected to the backend.", "info"); }
+
+  return { ...data, sessionId: session?.user.id ?? null, ready, user: session?.user ?? null, toasts, toast, login, logout: endSession, enroll, pay, cancelEnrollment, saveCourse, setUserStatus, resetDemo };
+}
+
+const useStoreValue: typeof useDemoStoreValue = API_URL ? useApiStoreValue : useDemoStoreValue;
+
+const Ctx = createContext<ReturnType<typeof useDemoStoreValue> | null>(null);
 export function Providers({ children }: { children: React.ReactNode }) {
   return <Ctx.Provider value={useStoreValue()}>{children}</Ctx.Provider>;
 }

@@ -1,0 +1,12 @@
+server:
+  port: ${PORT:8082}
+
+spring:
+  application:
+    name: course-service
+  config:
+    import: classpath:academiax-common.yml
+
+academiax:
+  db:
+    schema: course

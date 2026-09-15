@@ -1,0 +1,18 @@
+server:
+  port: ${PORT:8081}
+
+spring:
+  application:
+    name: auth-service
+  config:
+    import: classpath:academiax-common.yml
+
+academiax:
+  db:
+    schema: auth
+  security:
+    public-paths: /api/auth/login
+  seed-demo-data: ${SEED_DEMO_DATA:true}
+  login:
+    max-failures: ${LOGIN_MAX_FAILURES:5}
+    window: ${LOGIN_WINDOW:PT15M}

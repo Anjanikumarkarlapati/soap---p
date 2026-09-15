@@ -1,0 +1,94 @@
+# Full platform: PostgreSQL + Eureka + Gateway + services (critical services x2) + Next.js.
+#   cp .env.example .env   # set DB_PASSWORD and JWT_SECRET
+#   docker compose up --build
+# Only the gateway (8080), Eureka dashboard (8761) and web app (3000) are published.
+
+x-service: &service
+  build: .
+  restart: unless-stopped
+  depends_on:
+    postgres: { condition: service_healthy }
+    eureka-server: { condition: service_healthy }
+  environment: &service-env
+    DB_URL: jdbc:postgresql://postgres:5432/academiax
+    DB_USERNAME: ${DB_USERNAME:-academiax}
+    DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+    EUREKA_SERVER_URL: http://eureka-server:8761/eureka
+    SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
+  healthcheck:
+    test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/$${PORT}; printf 'GET /actuator/health/readiness HTTP/1.0\\r\\n\\r\\n' >&3; grep -q UP <&3"]
+    interval: 10s
+    timeout: 5s
+    retries: 30
+
+services:
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: academiax
+      POSTGRES_USER: ${DB_USERNAME:-academiax}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d academiax"]
+      interval: 5s
+      retries: 20
+
+  eureka-server:
+    build: { context: ., args: { SERVICE: eureka-server } }
+    restart: unless-stopped
+    environment: { PORT: "8761" }
+    ports: ["8761:8761"]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8761; printf 'GET /actuator/health HTTP/1.0\\r\\n\\r\\n' >&3; grep -q UP <&3"]
+      interval: 10s
+      retries: 30
+
+  api-gateway:
+    build: { context: ., args: { SERVICE: api-gateway } }
+    restart: unless-stopped
+    depends_on:
+      eureka-server: { condition: service_healthy }
+    environment:
+      PORT: "8080"
+      EUREKA_SERVER_URL: http://eureka-server:8761/eureka
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+    ports: ["8080:8080"]
+
+  auth-service:
+    <<: *service
+    build: { context: ., args: { SERVICE: auth-service } }
+    environment: { <<: *service-env, PORT: "8081" }
+
+  course-service:
+    <<: *service
+    build: { context: ., args: { SERVICE: course-service } }
+    environment: { <<: *service-env, PORT: "8082" }
+    deploy: { replicas: 2 }
+
+  enrollment-service:
+    <<: *service
+    build: { context: ., args: { SERVICE: enrollment-service } }
+    environment: { <<: *service-env, PORT: "8083" }
+    deploy: { replicas: 2 }
+
+  payment-service:
+    <<: *service
+    build: { context: ., args: { SERVICE: payment-service } }
+    environment: { <<: *service-env, PORT: "8084" }
+    deploy: { replicas: 2 }
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8080}
+    restart: unless-stopped
+    depends_on: [api-gateway]
+    ports: ["3000:3000"]
+
+volumes:
+  pgdata:

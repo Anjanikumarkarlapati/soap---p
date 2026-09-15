@@ -14,20 +14,36 @@ next-env.d.ts
 # env & secrets
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 *.pfx
 *.p12
 
 # logs
+*.log
+*.log.*
 *-debug.log*
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+logs/
+*.pid
 
-# editor / OS
+# Maven & Java
+target/
+*.jar
+*.war
+*.nar
+*.ear
+*.class
+.tools/
+
+# IDE / agents / OS
 .DS_Store
 Thumbs.db
+.claude/
+.serena/
 
 # vercel
 .vercel

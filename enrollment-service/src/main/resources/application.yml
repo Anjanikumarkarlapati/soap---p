@@ -1,0 +1,15 @@
+server:
+  port: ${PORT:8083}
+
+spring:
+  application:
+    name: enrollment-service
+  config:
+    import: classpath:academiax-common.yml
+
+academiax:
+  db:
+    schema: enrollment
+  enrollment:
+    # Unpaid reservations are failed and their seats released after this long.
+    reservation-ttl: ${RESERVATION_TTL:PT30M}

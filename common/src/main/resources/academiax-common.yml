@@ -1,0 +1,59 @@
+# Shared defaults imported by every servlet service via spring.config.import.
+# Each service sets spring.application.name, server.port and academiax.db.schema.
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/postgres}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:}
+    hikari:
+      # Each service owns its own schema and never touches another's tables.
+      connection-init-sql: SET search_path TO ${academiax.db.schema}
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+  flyway:
+    schemas: ${academiax.db.schema}
+    create-schemas: true
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  threads:
+    virtual:
+      enabled: true
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka}
+  instance:
+    prefer-ip-address: true
+    # Unique id so several instances of one service can register side by side.
+    instance-id: ${spring.application.name}:${server.port}:${random.value}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+academiax:
+  jwt:
+    # Dev-only fallback. Production must set JWT_SECRET (>= 32 bytes).
+    secret: ${JWT_SECRET:dev-only-change-me-academiax-jwt-secret-0123456789}
+    ttl: ${JWT_TTL:PT60M}
+  client:
+    connect-timeout: ${CLIENT_CONNECT_TIMEOUT:PT2S}
+    read-timeout: ${CLIENT_READ_TIMEOUT:PT5S}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  pattern:
+    level: "%5p [${spring.application.name:},%X{correlationId:-}]"
