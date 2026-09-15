@@ -1,0 +1,119 @@
+@import "tailwindcss";
+
+/* Design language from the Figma "Personal Collectors Items" template:
+   flat navy ground, off-white hairlines, Archivo Black uppercase display,
+   Roboto Mono uppercase captions, Inter body, square corners, no shadows. */
+:root {
+  --navy: #032d68;
+  --navy-deep: #021f4a;
+  --paper: #fcfcfa;
+
+  --primary: var(--paper);
+  --primary-hover: #ffffff;
+  --success: #7ee2a8;
+  --warning: #ffc857;
+  --error: #ff8a7a;
+  --info: #8fd3ff;
+  --background: var(--navy);
+  --surface: var(--navy);
+  --text: var(--paper);
+  --text-muted: rgb(252 252 250 / 0.72);
+  --border: var(--paper);
+  --line-soft: rgb(252 252 250 / 0.28);
+}
+
+@theme inline {
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-error: var(--error);
+  --color-info: var(--info);
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-text: var(--text);
+  --color-muted: var(--text-muted);
+  --color-border: var(--border);
+  --color-soft: var(--line-soft);
+  --color-navy: var(--navy);
+  --color-navy-deep: var(--navy-deep);
+  --color-paper: var(--paper);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-archivo), "Arial Black", sans-serif;
+  --font-mono: var(--font-roboto-mono), ui-monospace, monospace;
+
+  /* Template has square corners and no elevation. */
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
+  --shadow-2xl: none;
+
+  /* ponytail: remaps the stock palette onto the navy theme so existing utility
+     classes (bg-slate-50, text-green-700…) follow the template; replace with
+     semantic tokens if the palette ever needs to diverge per-screen. */
+  --color-slate-50: rgb(252 252 250 / 0.05);
+  --color-slate-100: rgb(252 252 250 / 0.1);
+  --color-slate-200: rgb(252 252 250 / 0.18);
+  --color-slate-400: rgb(252 252 250 / 0.5);
+  --color-slate-500: rgb(252 252 250 / 0.6);
+  --color-slate-600: rgb(252 252 250 / 0.78);
+  --color-slate-700: rgb(252 252 250 / 0.88);
+  --color-slate-800: var(--navy-deep);
+  --color-slate-900: var(--navy-deep);
+  --color-blue-50: rgb(252 252 250 / 0.1);
+  --color-blue-300: var(--paper);
+  --color-blue-600: var(--paper);
+  --color-blue-700: var(--paper);
+  --color-green-50: transparent;
+  --color-green-600: var(--success);
+  --color-green-700: var(--success);
+  --color-amber-50: transparent;
+  --color-amber-600: var(--warning);
+  --color-amber-700: var(--warning);
+  --color-red-50: transparent;
+  --color-red-600: var(--error);
+  --color-red-700: var(--error);
+  --color-cyan-50: transparent;
+  --color-cyan-600: var(--info);
+  --color-cyan-700: var(--info);
+}
+
+body {
+  background: var(--background);
+  color: var(--text);
+}
+
+::selection { background: var(--paper); color: var(--navy); }
+
+:focus-visible {
+  outline: 2px solid var(--paper);
+  outline-offset: 2px;
+}
+
+select option { background: var(--navy); color: var(--paper); }
+input[type="datetime-local"]::-webkit-calendar-picker-indicator { filter: invert(1); }
+
+@utility btn {
+  @apply inline-flex min-h-11 items-center justify-center gap-2 border px-5 py-2 font-display text-sm uppercase tracking-tight transition-colors disabled:cursor-not-allowed disabled:opacity-40;
+}
+@utility btn-primary { @apply btn border-paper bg-paper text-navy hover:bg-white; }
+@utility btn-secondary { @apply btn border-paper bg-transparent text-paper hover:bg-paper hover:text-navy; }
+@utility btn-ghost { @apply btn border-transparent bg-transparent text-paper hover:border-soft; }
+@utility btn-danger { @apply btn border-error bg-error text-navy hover:bg-transparent hover:text-error; }
+@utility card { @apply border-[0.8px] border-paper bg-transparent; }
+@utility input {
+  @apply w-full border-[0.8px] border-paper bg-transparent px-3 py-2.5 font-mono text-sm text-paper placeholder:text-paper/45 focus:bg-paper/5 focus:outline-none disabled:opacity-50 aria-[invalid=true]:border-error;
+}
+@utility label { @apply mb-1.5 block font-mono text-[13px] font-bold uppercase text-paper; }
+@utility display { @apply font-display uppercase leading-[0.9] tracking-[-0.06em]; }
+@utility h1 { @apply font-display text-[32px] uppercase leading-none tracking-[-0.03em] sm:text-[44px]; }
+@utility h2 { @apply font-display text-[24px] uppercase leading-none tracking-[-0.02em]; }
+@utility h3 { @apply font-display text-[18px] uppercase leading-tight tracking-[-0.01em]; }
+@utility caption { @apply font-mono text-[13px] uppercase text-muted; }
+@utility mono-label { @apply font-mono text-[13px] uppercase; }
+@utility skeleton { @apply animate-pulse bg-paper/15; }
